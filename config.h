@@ -14,20 +14,20 @@ typedef struct {
     char label[64];        /* e.g. "Case 1"                         */
 } Config;
 
-/* ── All profiling counters ── */
+// counters
 typedef struct {
     /* Table A – Memory Hierarchy */
-    long dram_loads;        /* # tile-loads  from DRAM (input + weight) */
-    long dram_stores;       /* # tile-stores to   DRAM (output)         */
+    long dram_loads;        /* tile-loads  from DRAM (input + weight) */
+    long dram_stores;       /* tile-stores to   DRAM (output)         */
     long sram_input_size;   /* bytes for one Input  tile in SRAM         */
     long sram_weight_size;  /* bytes for one Weight tile in SRAM         */
     long sram_psum_size;    /* bytes for Psum/Output buffer in SRAM      */
 
     /* Table B – Compute / Dataflow */
-    long sram_input_reads;  /* # times PE array reads from Input  buffer */
-    long sram_weight_reads; /* # times PE array reads from Weight buffer */
-    long ps_buffer_reads;   /* # Psum read-backs  from PS buffer         */
-    long ps_buffer_writes;  /* # Psum spills into PS buffer              */
+    long sram_input_reads;  /* times PE array reads from Input  buffer */
+    long sram_weight_reads; /* times PE array reads from Weight buffer */
+    long ps_buffer_reads;   /* Psum read-backs  from PS buffer         */
+    long ps_buffer_writes;  /* Psum spills into PS buffer              */
     long max_PE;            /* peak PE count in one cycle                */
     long total_cycles;      /* total parallel-MAC invocations            */
 } Metrics;
