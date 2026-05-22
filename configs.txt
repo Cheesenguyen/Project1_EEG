@@ -1,0 +1,181 @@
+# ============================================================
+# CONVOLUTION SIMULATOR — CONFIG FILE
+# ============================================================
+# Format: KEY=VALUE, mỗi case cách nhau bằng 1 dòng trống
+# Dòng bắt đầu bằng # là comment
+#
+# Tham số bắt buộc:
+#   H, W, C          : Input Feature Map (H=128, W=128, C=1024 cố định)
+#   K, R, S          : Filter (K=số output channel, R×S=kernel size)
+#   TH, TW, TC, TK   : Tile sizes
+#   stride, padding  : Conv config
+#   strategy         : WS | IS | OS
+# ============================================================
+
+# ── NHÓM 1: So sánh Strategy (tile nhỏ, kernel 3×3) ──────────
+
+# Case 1 — Tile nhỏ, Weight Stationary
+label=Case 1 (WS, 3x3)
+H=128
+W=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=64
+TK=32
+stride=1
+padding=1
+strategy=WS
+
+# Case 2 — Tile nhỏ, Input Stationary
+label=Case 2 (IS, 3x3)
+H=128
+W=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=64
+TK=32
+stride=1
+padding=1
+strategy=IS
+
+# Case 3 — Tile nhỏ, Output Stationary
+label=Case 3 (OS, 3x3)
+H=128
+W=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=64
+TK=32
+stride=1
+padding=1
+strategy=OS
+
+# ── NHÓM 2: Tác động của Tile lớn hơn ──────────────────────
+
+# Case 4 — Tile lớn, WS
+label=Case 4 (WS, big tile)
+H=128
+W=128
+C=1024
+K=64
+R=3
+S=3
+TH=32
+TW=32
+TC=256
+TK=64
+stride=1
+padding=1
+strategy=WS
+
+# Case 5 — Tile lớn, OS
+label=Case 5 (OS, big tile)
+H=128
+W=128
+C=1024
+K=64
+R=3
+S=3
+TH=32
+TW=32
+TC=256
+TK=64
+stride=1
+padding=1
+strategy=OS
+
+# ── NHÓM 3: Kernel size khác nhau ───────────────────────────
+
+# Case 6 — Kernel 1×1 (Pointwise), OS
+label=Case 6 (OS, 1x1)
+H=128
+W=128
+C=1024
+K=128
+R=1
+S=1
+TH=16
+TW=16
+TC=128
+TK=64
+stride=1
+padding=0
+strategy=OS
+
+# Case 7 — Kernel 5×5, WS
+label=Case 7 (WS, 5x5)
+H=128
+W=128
+C=1024
+K=64
+R=5
+S=5
+TH=8
+TW=8
+TC=64
+TK=32
+stride=1
+padding=2
+strategy=WS
+
+# Case 8 — Kernel 7×7, IS (stride=2)
+label=Case 8 (IS, 7x7, s2)
+H=128
+W=128
+C=1024
+K=64
+R=7
+S=7
+TH=8
+TW=8
+TC=64
+TK=32
+stride=2
+padding=3
+strategy=IS
+
+# ── NHÓM 4: Nhiều output channel (K lớn) ────────────────────
+
+# Case 9 — K=256, OS
+label=Case 9 (OS, K=256)
+H=128
+W=128
+C=1024
+K=256
+R=3
+S=3
+TH=8
+TW=8
+TC=64
+TK=64
+stride=1
+padding=1
+strategy=OS
+
+# Case 10 — K=256, WS, tile lớn
+label=Case 10 (WS, K=256)
+H=128
+W=128
+C=1024
+K=256
+R=3
+S=3
+TH=16
+TW=16
+TC=128
+TK=128
+stride=1
+padding=1
+strategy=WS

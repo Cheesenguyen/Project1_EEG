@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConvSim — Isometric Standard Convolution</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:        #f4f6fb;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f8;
+  --border:    #dde1ec;
+  --border2:   #c8cedf;
+  --text:      #1a1d2e;
+  --text2:     #5a6080;
+  --text3:     #9aa0b8;
+
+  --blue:      #2563eb;
+  --blue-light:#dbeafe;
+  --blue-mid:  #bfdbfe;
+
+  --green:      #16a34a;
+  --green-light:#dcfce7;
+  --green-mid:  #bbf7d0;
+
+  --amber:      #d97706;
+  --amber-light:#fef3c7;
+  --amber-mid:  #fde68a;
+
+  --purple:      #7c3aed;
+  --purple-light:#ede9fe;
+  --purple-mid:  #ddd6fe;
+
+  --red:       #dc2626;
+
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 1.5;
+}
+
+/* ── LAYOUT ── */
+.shell { display: grid; grid-template-columns: 310px 1fr; min-height: 100vh; }
+.sidebar {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 20px 18px; overflow-y: auto; position: sticky; top: 0; height: 100vh;
+  box-shadow: 2px 0 8px rgba(0,0,0,.04);
+}
+.main { padding: 24px; overflow-y: auto; }
+
+/* ── HEADER ── */
+.brand { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.brand-logo { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--blue); letter-spacing: -.02em; }
+.brand-tag { font-family: var(--mono); font-size: 9px; font-weight: 700; background: var(--blue-light); color: var(--blue); border: 1px solid var(--blue-mid); padding: 2px 7px; border-radius: 20px; }
+
+/* ── UI ELEMENTS ── */
+.sec-label { font-family: var(--mono); font-size: 9px; font-weight: 700; color: var(--text3); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.sec-label::after { content:''; flex:1; border-top:1px solid var(--border); }
+.pgroup { margin-bottom: 16px; }
+.pgrid  { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pitem label { display: block; font-family: var(--mono); font-size: 9px; font-weight: 700; color: var(--text2); margin-bottom: 3px; letter-spacing: .06em; text-transform: uppercase; }
+.pitem input, .pitem select { width: 100%; padding: 5px 8px; background: var(--bg); border: 1px solid var(--border2); border-radius: 5px; color: var(--text); font-family: var(--mono); font-size: 12px; }
+.pitem input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.pcomputed { margin-top: 7px; background: var(--blue-light); border: 1px solid var(--blue-mid); border-radius: 5px; padding: 6px 10px; font-family: var(--mono); font-size: 11px; color: var(--blue); font-weight: 600; }
+
+.stabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.stab { flex: 1; text-align: center; padding: 7px; border-radius: 6px; border: 1px solid var(--border2); font-family: var(--mono); font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text2); background: var(--bg); }
+.stab.ws.active { background: var(--green-light); color: var(--green); border-color: var(--green); }
+.stab.is.active { background: var(--amber-light); color: var(--amber); border-color: var(--amber); }
+.stab.os.active { background: var(--purple-light); color: var(--purple); border-color: var(--purple); }
+.sdesc { font-size: 11px; padding: 9px 11px; border-radius: 6px; border-left: 3px solid; }
+.sdesc.ws { background: var(--green-light); border-color: var(--green); color: #14532d; }
+.sdesc.is { background: var(--amber-light); border-color: var(--amber); color: #78350f; }
+.sdesc.os { background: var(--purple-light); border-color: var(--purple); color: #4c1d95; }
+
+.btnrow { display: flex; gap: 8px; margin-top: 16px; }
+.btn { padding: 9px 20px; border-radius: 7px; border: none; font-family: var(--sans); font-size: 13px; font-weight: 700; cursor: pointer; }
+.btn-run { flex: 1; background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.25); }
+.btn-reset { background: var(--surface2); color: var(--text2); border: 1px solid var(--border2); }
+
+.page-title { font-size: 11px; font-weight: 700; color: var(--text3); margin-bottom: 20px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.page-title::before, .page-title::after { content:''; height:1px; background:var(--border2); }
+.page-title::before { width:24px; } .page-title::after { flex:1; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 18px; box-shadow: var(--shadow); }
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; font-weight: 700; }
+.badge { font-family: var(--mono); font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 20px; letter-spacing: .08em; border: 1px solid; }
+.badge-blue { background: var(--blue-light); color: var(--blue); border-color: var(--blue-mid); }
+.badge-green { background: var(--green-light); color: var(--green); border-color: var(--green-mid); }
+
+/* VIZ UI */
+.cycbar { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.cycnum { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--blue); min-width: 100px; }
+.cycnum-label { font-family: var(--mono); font-size: 8px; color: var(--text3); letter-spacing: .1em; text-transform: uppercase; }
+.cycinfo { font-family: var(--mono); font-size: 10px; color: var(--text2); flex: 1; }
+.cycslider { flex: 1; }
+.btn-sm { padding: 4px 12px; font-size: 11px; font-weight: 700; border-radius: 5px; border: 1px solid var(--border2); cursor: pointer; }
+.btn-sm.primary { background: var(--blue-light); color: var(--blue); border-color: var(--blue-mid); }
+
+/* ISO TENSOR WRAPPER */
+.tviz-wrap { display: flex; gap: 24px; flex-wrap: wrap; align-items: stretch; justify-content: center; }
+.tblock { display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; }
+.tblock-name { font-family: var(--mono); font-size: 11px; font-weight: 700; text-align: center; line-height: 1.4; }
+.tblock-axis { font-family: var(--mono); font-size: 9px; color: var(--text3); text-align: center; }
+.tblock-info { font-family: var(--mono); font-size: 10px; color: var(--text2); text-align: center; font-weight: 600; width: 100%; }
+
+canvas { display: block; margin: 0 auto; }
+.iso-container { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; width: 100%; margin-top: 10px; }
+.iso-item { display: flex; flex-direction: column; align-items: center; }
+.iso-label { font-family: var(--mono); font-size: 9px; color: var(--text3); margin-bottom: 4px; }
+
+.placeholder { text-align: center; padding: 100px 20px; color: var(--text3); }
+.placeholder-icon { font-size: 42px; margin-bottom: 14px; }
+.placeholder-title { font-size: 15px; font-weight: 700; color: var(--text2); margin-bottom: 6px; }
+
+.hdivider { border:none; border-top: 1px solid var(--border); margin: 14px 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<div class="sidebar">
+  <div class="brand"><span class="brand-logo">ConvSim</span><span class="brand-tag">ISOMETRIC 3D</span></div>
+
+  <div class="pgroup">
+    <div class="sec-label">Layer Params (N, H, W, C, K, R, S)</div>
+    <div class="pgrid">
+      <div class="pitem"><label>H (input H)</label><input type="number" id="p_H" value="128" min="1"></div>
+      <div class="pitem"><label>W (input W)</label><input type="number" id="p_W" value="128" min="1"></div>
+      <div class="pitem"><label>C (in channels)</label><input type="number" id="p_C" value="16" min="1"></div>
+      <div class="pitem"><label>K (out channels)</label><input type="number" id="p_K" value="8" min="1"></div>
+      <div class="pitem"><label>R (kernel H)</label><input type="number" id="p_R" value="3" min="1"></div>
+      <div class="pitem"><label>S (kernel W)</label><input type="number" id="p_S" value="3" min="1"></div>
+      <div class="pitem"><label>PAD</label><input type="number" id="p_PAD" value="1" min="0"></div>
+      <div class="pitem"><label>STRIDE</label><input type="number" id="p_STRIDE" value="1" min="1"></div>
+    </div>
+    <div class="pcomputed" id="pq_label">P = 128 &nbsp;&nbsp; Q = 128</div>
+  </div>
+
+  <hr class="hdivider">
+
+  <div class="pgroup">
+    <div class="sec-label">Tiling DRAM → SRAM</div>
+    <div class="pgrid">
+      <div class="pitem"><label>T_P (out rows)</label><input type="number" id="t_P" value="8" min="1"></div>
+      <div class="pitem"><label>T_Q (out cols)</label><input type="number" id="t_Q" value="8" min="1"></div>
+      <div class="pitem"><label>T_K</label><input type="number" id="t_K" value="4" min="1"></div>
+      <div class="pitem"><label>T_C</label><input type="number" id="t_C" value="4" min="1"></div>
+      <div class="pitem"><label>T_R</label><input type="number" id="t_R" value="3" min="1"></div>
+      <div class="pitem"><label>T_S</label><input type="number" id="t_S" value="3" min="1"></div>
+    </div>
+  </div>
+
+  <hr class="hdivider">
+
+  <div class="pgroup">
+    <div class="sec-label">Tiling SRAM → PE (Chu kỳ)</div>
+    <div class="pgrid">
+      <div class="pitem"><label>PE_P</label><input type="number" id="pe_P" value="2" min="1"></div>
+      <div class="pitem"><label>PE_Q</label><input type="number" id="pe_Q" value="2" min="1"></div>
+      <div class="pitem"><label>PE_K</label><input type="number" id="pe_K" value="2" min="1"></div>
+      <div class="pitem"><label>PE_C</label><input type="number" id="pe_C" value="2" min="1"></div>
+      <div class="pitem"><label>PE_R</label><input type="number" id="pe_R" value="1" min="1"></div>
+      <div class="pitem"><label>PE_S</label><input type="number" id="pe_S" value="1" min="1"></div>
+    </div>
+  </div>
+
+  <hr class="hdivider">
+
+  <div class="pgroup">
+    <div class="sec-label">Stationary Strategy</div>
+    <div class="stabs">
+      <div class="stab ws active" id="tab_WS" onclick="setStrategy('WS')">WS</div>
+      <div class="stab is"        id="tab_IS" onclick="setStrategy('IS')">IS</div>
+      <div class="stab os"        id="tab_OS" onclick="setStrategy('OS')">OS</div>
+    </div>
+  </div>
+
+  <div class="btnrow">
+    <button class="btn btn-run" onclick="runSim()">▶ Render Khối 3D</button>
+  </div>
+</div>
+
+<div class="main">
+  <div id="placeholder" class="placeholder">
+    <div class="placeholder-icon">🧊</div>
+    <div class="placeholder-title">Bộ mô phỏng Standard Convolution 3D</div>
+    <div class="placeholder-sub">Bấm "Render Khối 3D" để hiển thị dữ liệu dạng ma trận Isometric.</div>
+  </div>
+
+  <div id="viz_section" style="display:none">
+    
+    <div class="card">
+      <div class="card-head"><span class="badge badge-blue">TẦNG 1</span> Phân rã DRAM → SRAM (Hình chiếu Isometric)</div>
+      <div class="cycbar">
+        <div><div class="cycnum-label">Tile Index</div><div class="cycnum" id="tile_num">0/0</div></div>
+        <div class="cycinfo" id="tile_info"></div>
+        <input type="range" class="cycslider" id="tile_slider" min="0" value="0" oninput="onTileSlide(+this.value)">
+        <button class="btn-sm" onclick="moveTile(-1)">◀</button>
+        <button class="btn-sm primary" onclick="moveTile(1)">▶</button>
+      </div>
+      <div id="viz1_tensors" class="tviz-wrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="badge badge-green">TẦNG 2</span> Nạp SRAM → PE Array (Dataflow qua từng Cycle)</div>
+      <div class="cycbar">
+        <div><div class="cycnum-label">Cycle Index</div><div class="cycnum" id="cyc_num">0/0</div></div>
+        <div class="cycinfo" id="cyc_info"></div>
+        <input type="range" class="cycslider" id="cyc_slider" min="0" value="0" oninput="onCycSlide(+this.value)">
+        <button class="btn-sm" onclick="moveCyc(-1)">◀</button>
+        <button class="btn-sm primary" onclick="moveCyc(1)">▶</button>
+      </div>
+      <div id="viz2_tensors" class="tviz-wrap"></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+/* ================================================================
+   MATH & LOGIC
+   ================================================================ */
+const $ = id => document.getElementById(id);
+const ceil = (a,b) => Math.ceil(a/b);
+const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+
+function calcP(){ const H=+$('p_H').value,R=+$('p_R').value,PAD=+$('p_PAD').value,ST=+$('p_STRIDE').value; return Math.floor((H+2*PAD-R)/ST)+1; }
+function calcQ(){ const W=+$('p_W').value,S=+$('p_S').value,PAD=+$('p_PAD').value,ST=+$('p_STRIDE').value; return Math.floor((W+2*PAD-S)/ST)+1; }
+
+let SIM = null;
+let curTile = 0; let curCyc = 0; let strategy = 'WS';
+
+function liveUpdate(){
+  $('pq_label').textContent = `P = ${calcP()}    Q = ${calcQ()}`;
+}
+function setStrategy(s){
+  strategy = s;
+  ['WS','IS','OS'].forEach(x=>{ $('tab_'+x).className = 'stab '+x.toLowerCase()+(s===x?' active':''); });
+}
+
+function runSim(){
+  const c = {
+    H: +$('p_H').value, W: +$('p_W').value, C: +$('p_C').value, K: +$('p_K').value, R: +$('p_R').value, S: +$('p_S').value, STRIDE: +$('p_STRIDE').value, P: calcP(), Q: calcQ(),
+    T_P:+$('t_P').value, T_Q:+$('t_Q').value, T_K:+$('t_K').value, T_C:+$('t_C').value, T_R:+$('t_R').value, T_S:+$('t_S').value,
+    PE_P:+$('pe_P').value, PE_Q:+$('pe_Q').value, PE_K:+$('pe_K').value, PE_C:+$('pe_C').value, PE_R:+$('pe_R').value, PE_S:+$('pe_S').value,
+  };
+  c.T_P=Math.min(c.T_P,c.P); c.T_Q=Math.min(c.T_Q,c.Q); c.T_K=Math.min(c.T_K,c.K); c.T_C=Math.min(c.T_C,c.C); c.T_R=Math.min(c.T_R,c.R); c.T_S=Math.min(c.T_S,c.S);
+  c.PE_P=Math.min(c.PE_P,c.T_P); c.PE_Q=Math.min(c.PE_Q,c.T_Q); c.PE_K=Math.min(c.PE_K,c.T_K); c.PE_C=Math.min(c.PE_C,c.T_C); c.PE_R=Math.min(c.PE_R,c.T_R); c.PE_S=Math.min(c.PE_S,c.T_S);
+
+  const nTP=ceil(c.P,c.T_P), nTQ=ceil(c.Q,c.T_Q), nTK=ceil(c.K,c.T_K), nTC=ceil(c.C,c.T_C), nTR=ceil(c.R,c.T_R), nTS=ceil(c.S,c.T_S);
+  const nPK=ceil(c.T_K,c.PE_K), nPC=ceil(c.T_C,c.PE_C), nPP=ceil(c.T_P,c.PE_P), nPQ=ceil(c.T_Q,c.PE_Q), nPR=ceil(c.T_R,c.PE_R), nPS=ceil(c.T_S,c.PE_S);
+
+  const T_H_eff = (c.T_P-1)*c.STRIDE + c.T_R;
+  const T_W_eff = (c.T_Q-1)*c.STRIDE + c.T_S;
+
+  const tiles = [];
+  outer: for(let tp=0;tp<nTP;tp++) for(let tq=0;tq<nTQ;tq++) for(let tk=0;tk<nTK;tk++) for(let tc=0;tc<nTC;tc++) for(let tr=0;tr<nTR;tr++) for(let ts=0;ts<nTS;ts++){
+    tiles.push({tp,tq,tk,tc,tr,ts});
+    if(tiles.length>=200) break outer;
+  }
+  const cycles = [];
+  for(let pk=0;pk<nPK;pk++) for(let pc=0;pc<nPC;pc++) for(let pr=0;pr<nPR;pr++) for(let ps=0;ps<nPS;ps++) for(let pp=0;pp<nPP;pp++) for(let pq=0;pq<nPQ;pq++) cycles.push({pk,pc,pp,pq,pr,ps});
+
+  SIM = { CFG:c, tiles, cycles, T_H_eff, T_W_eff, nTP, nTQ, nTK, nTC, nTR, nTS };
+  curTile=0; curCyc=0;
+  
+  $('placeholder').style.display='none';
+  $('viz_section').style.display='';
+  renderViz();
+}
+
+/* ================================================================
+   ISOMETRIC CANVAS RENDERER (Voxel-like look)
+   ================================================================ */
+const COLORS = {
+  blue:  { top: '#bfdbfe', left: '#93c5fd', right: '#60a5fa', grid: '#3b82f6', active: '#dc2626' },
+  green: { top: '#bbf7d0', left: '#86efac', right: '#4ade80', grid: '#16a34a', active: '#dc2626' },
+  amber: { top: '#fde68a', left: '#fcd34d', right: '#fbbf24', grid: '#d97706', active: '#dc2626' }
+};
+
+function drawIsoBlock(ctx, ox, oy, oz, w, h, d, scale, cx, cy, pal, isFaint) {
+  if (w<=0 || h<=0 || d<=0) return;
+  const a = Math.PI/6, cos = Math.cos(a), sin = Math.sin(a);
+  const proj = (X, Y, Z) => ({ x: cx + (X-Z)*cos*scale, y: cy - Y*scale + (X+Z)*sin*scale });
+
+  const p0 = proj(ox, oy+h, oz);     // top back
+  const p1 = proj(ox+w, oy+h, oz);   // top right
+  const p2 = proj(ox+w, oy+h, oz+d); // top front
+  const p3 = proj(ox, oy+h, oz+d);   // top left
+  
+  const p4 = proj(ox, oy, oz+d);     // bot left
+  const p5 = proj(ox+w, oy, oz+d);   // bot front
+  const p6 = proj(ox+w, oy, oz);     // bot right (hidden mostly)
+
+  ctx.globalAlpha = isFaint ? 0.2 : 1.0;
+  ctx.strokeStyle = isFaint ? pal.grid : '#fff';
+  ctx.lineWidth = isFaint ? 0.5 : 1;
+
+  // TOP FACE
+  ctx.fillStyle = pal.top;
+  ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.lineTo(p3.x,p3.y); ctx.fill(); ctx.stroke();
+  // LEFT FACE
+  ctx.fillStyle = pal.left;
+  ctx.beginPath(); ctx.moveTo(p3.x,p3.y); ctx.lineTo(p2.x,p2.y); ctx.lineTo(p5.x,p5.y); ctx.lineTo(p4.x,p4.y); ctx.fill(); ctx.stroke();
+  // RIGHT FACE
+  ctx.fillStyle = pal.right;
+  ctx.beginPath(); ctx.moveTo(p2.x,p2.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p6.x,p6.y); ctx.lineTo(p5.x,p5.y); ctx.fill(); ctx.stroke();
+  ctx.globalAlpha = 1.0;
+
+  // DRAW GRID LINES (Simulating individual cells)
+  // Calculate a step so we don't draw 128 lines and turn it black
+  const maxLines = 10;
+  const stepX = Math.max(1, Math.ceil(w / maxLines));
+  const stepY = Math.max(1, Math.ceil(h / maxLines));
+  const stepZ = Math.max(1, Math.ceil(d / maxLines));
+
+  ctx.globalAlpha = isFaint ? 0.1 : 0.3;
+  ctx.strokeStyle = pal.grid;
+  ctx.lineWidth = 0.5;
+
+  // Top Grid
+  for(let i=0; i<=w; i+=stepX) { let a=proj(ox+i, oy+h, oz), b=proj(ox+i, oy+h, oz+d); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  for(let i=0; i<=d; i+=stepZ) { let a=proj(ox, oy+h, oz+i), b=proj(ox+w, oy+h, oz+i); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  // Left Face Grid
+  for(let i=0; i<=w; i+=stepX) { let a=proj(ox+i, oy+h, oz+d), b=proj(ox+i, oy, oz+d); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  for(let i=0; i<=h; i+=stepY) { let a=proj(ox, oy+i, oz+d), b=proj(ox+w, oy+i, oz+d); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  // Right Face Grid
+  for(let i=0; i<=d; i+=stepZ) { let a=proj(ox+w, oy+h, oz+i), b=proj(ox+w, oy, oz+i); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  for(let i=0; i<=h; i+=stepY) { let a=proj(ox+w, oy+i, oz+d), b=proj(ox+w, oy+i, oz); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  ctx.globalAlpha = 1.0;
+}
+
+function drawActiveOutline(ctx, ox, oy, oz, w, h, d, scale, cx, cy) {
+  if (w<=0 || h<=0 || d<=0) return;
+  const a = Math.PI/6, cos = Math.cos(a), sin = Math.sin(a);
+  const proj = (X, Y, Z) => ({ x: cx + (X-Z)*cos*scale, y: cy - Y*scale + (X+Z)*sin*scale });
+
+  const p0 = proj(ox, oy+h, oz);     
+  const p1 = proj(ox+w, oy+h, oz);   
+  const p2 = proj(ox+w, oy+h, oz+d); 
+  const p3 = proj(ox, oy+h, oz+d);   
+  const p4 = proj(ox, oy, oz+d);     
+  const p5 = proj(ox+w, oy, oz+d);   
+  const p6 = proj(ox+w, oy, oz);     
+
+  ctx.strokeStyle = '#dc2626'; // Red outline
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+
+  // Draw the full visible silhouette of the block
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.lineTo(p6.x, p6.y); 
+  ctx.lineTo(p5.x, p5.y); ctx.lineTo(p4.x, p4.y); ctx.lineTo(p3.x, p3.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Draw the inner Y (corner facing user)
+  ctx.beginPath(); ctx.moveTo(p2.x, p2.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(p2.x, p2.y); ctx.lineTo(p5.x, p5.y); ctx.stroke();
+}
+
+function renderTensorHTML(cfg) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tblock';
+  wrap.style.flex = cfg.isArray ? '1 1 100%' : '1'; 
+  wrap.style.minWidth = '200px';
+
+  const nm = document.createElement('div');
+  nm.className = 'tblock-name';
+  nm.style.color = COLORS[cfg.colorKey].grid;
+  nm.innerHTML = cfg.name;
+  wrap.appendChild(nm);
+
+  const ax = document.createElement('div'); ax.className = 'tblock-axis';
+  if(cfg.axes) ax.innerHTML = `[${cfg.axes[0]}: ${cfg.total[0]}] × [${cfg.axes[1]}: ${cfg.total[1]}] × [${cfg.axes[2]}: ${cfg.total[2]}]`;
+  wrap.appendChild(ax);
+
+  const container = document.createElement('div');
+  container.className = 'iso-container';
+  wrap.appendChild(container);
+
+  const loops = cfg.isArray ? Math.min(cfg.numFilters, 12) : 1; 
+  const size = cfg.isArray ? 100 : 220;
+
+  for (let i = 0; i < loops; i++) {
+    const item = document.createElement('div'); item.className = 'iso-item';
+    if(cfg.isArray) {
+      const lbl = document.createElement('div'); lbl.className = 'iso-label';
+      lbl.innerText = `Bộ lọc K=${cfg.arrayOffset + i}`;
+      item.appendChild(lbl);
+    }
+
+    const cv = document.createElement('canvas');
+    cv.style.width = size + 'px'; cv.style.height = size + 'px';
+    cv.width = size * 2; cv.height = size * 2;
+    const ctx = cv.getContext('2d');
+    ctx.scale(2, 2);
+
+    const W = cfg.total[0], H = cfg.total[1], D = cfg.total[2];
+    const maxDim = Math.max(W, H, D) || 1;
+    const scale = (size * 0.45) / maxDim;
+    
+    // Center logic
+    const cx = size / 2;
+    const a=Math.PI/6, cos=Math.cos(a), sin=Math.sin(a);
+    const topY = -H*scale, botY = (W+D)*sin*scale;
+    const cy = size/2 - (topY + botY)/2;
+
+    const pal = COLORS[cfg.colorKey];
+    
+    // Draw Bounding Total Box (Faint)
+    drawIsoBlock(ctx, 0, 0, 0, W, H, D, scale, cx, cy, pal, true);
+
+    // Determine if this instance has an active tile
+    let active = false;
+    if(cfg.isArray) {
+        if(i === cfg.activeIndex) active = true;
+    } else {
+        active = true;
+    }
+
+    if(active) {
+        const limit = (o, t, tot) => Math.min(t, Math.max(0, tot - o));
+        const tw = limit(cfg.offset[0], cfg.tile[0], W);
+        const th = limit(cfg.offset[1], cfg.tile[1], H);
+        const td = limit(cfg.offset[2], cfg.tile[2], D);
+        // Draw Solid Inner Box
+        drawIsoBlock(ctx, cfg.offset[0], cfg.offset[1], cfg.offset[2], tw, th, td, scale, cx, cy, pal, false);
+        // Highlight Border
+        drawActiveOutline(ctx, cfg.offset[0], cfg.offset[1], cfg.offset[2], tw, th, td, scale, cx, cy);
+    }
+
+    item.appendChild(cv);
+    container.appendChild(item);
+  }
+
+  if (cfg.isArray && cfg.numFilters > loops) {
+      const elip = document.createElement('div');
+      elip.style.alignSelf = 'center'; elip.style.fontFamily = 'var(--mono)'; elip.style.fontSize = '12px'; elip.style.color = 'var(--text3)';
+      elip.innerHTML = `... (+${cfg.numFilters - loops} khối)`;
+      container.appendChild(elip);
+  }
+
+  const el = document.createElement('div'); el.className = 'tblock-info'; el.innerHTML = cfg.extraLine;
+  wrap.appendChild(el);
+  return wrap;
+}
+
+/* ================================================================
+   TIER RENDERING
+   ================================================================ */
+function renderViz(){
+  $('tile_slider').max = Math.max(0,SIM.tiles.length-1); $('tile_slider').value = curTile;
+  $('cyc_slider').max  = Math.max(0,SIM.cycles.length-1); $('cyc_slider').value = curCyc;
+  renderTileViz(); renderCycViz();
+}
+
+function onTileSlide(v){ curTile=v; renderTileViz(); }
+function onCycSlide(v) { curCyc=v;  renderCycViz(); }
+function moveTile(d){ curTile=clamp(curTile+d,0,SIM.tiles.length-1); $('tile_slider').value=curTile; renderTileViz(); }
+function moveCyc(d) { curCyc=clamp(curCyc+d,0,SIM.cycles.length-1);  $('cyc_slider').value=curCyc;  renderCycViz(); }
+
+function renderTileViz(){
+  if(!SIM) return;
+  const c=SIM.CFG, t=SIM.tiles[curTile];
+  $('tile_num').textContent=`${curTile+1} / ${Math.min(SIM.tiles.length, 200)}`;
+  $('tile_info').textContent=`Tọa độ (tp=${t.tp}, tq=${t.tq}, tk=${t.tk}, tc=${t.tc})`;
+
+  const cont=$('viz1_tensors'); cont.innerHTML='';
+
+  // 1. INPUT (W, H, C)
+  cont.appendChild(renderTensorHTML({
+    name: 'Input Feature Map<br>Đang nạp (Viền đỏ)', colorKey: 'blue', isArray: false,
+    total: [c.W, c.H, c.C], tile: [SIM.T_W_eff, SIM.T_H_eff, c.T_C],
+    offset: [t.tq*c.STRIDE*c.T_Q, t.tp*c.STRIDE*c.T_P, t.tc*c.T_C], axes: ['W', 'H', 'C'],
+    extraLine: `SRAM Payload: ${SIM.T_W_eff}×${SIM.T_H_eff}×${c.T_C}`
+  }));
+
+  // 2. WEIGHTS (K array of S, R, C)
+  cont.appendChild(renderTensorHTML({
+    name: `Lớp Trọng số Gồm ${c.K} Bộ lọc (S × R × C)`, colorKey: 'green', isArray: true,
+    numFilters: c.K, arrayOffset: 0,
+    activeIndex: t.tk * c.T_K, // Simulate highlighting the start of the current tile chunk
+    total: [c.S, c.R, c.C], tile: [c.T_S, c.T_R, c.T_C],
+    offset: [t.ts*c.T_S, t.tr*c.T_R, t.tc*c.T_C], axes: ['S', 'R', 'C'],
+    extraLine: `SRAM Payload: ${c.T_K} khối ${c.T_S}×${c.T_R}×${c.T_C}`
+  }));
+
+  // 3. OUTPUT (Q, P, K)
+  cont.appendChild(renderTensorHTML({
+    name: 'Output Feature Map', colorKey: 'amber', isArray: false,
+    total: [c.Q, c.P, c.K], tile: [c.T_Q, c.T_P, c.T_K],
+    offset: [t.tq*c.T_Q, t.tp*c.T_P, t.tk*c.T_K], axes: ['Q', 'P', 'K'],
+    extraLine: `SRAM Payload: ${c.T_Q}×${c.T_P}×${c.T_K}`
+  }));
+}
+
+function renderCycViz(){
+  if(!SIM) return;
+  const c=SIM.CFG, cy=SIM.cycles[curCyc];
+  $('cyc_num').textContent=`${curCyc+1} / ${SIM.cycles.length}`;
+  $('cyc_info').textContent=`PE Offsets: pq=${cy.pq}, pp=${cy.pp}, pk=${cy.pk}, pc=${cy.pc}`;
+
+  const cont=$('viz2_tensors'); cont.innerHTML='';
+
+  // 1. SRAM INPUT TILE -> PE CHUNK
+  cont.appendChild(renderTensorHTML({
+    name: 'SRAM Input Tile<br>(Viền đỏ = MAC tính toán)', colorKey: 'blue', isArray: false,
+    total: [SIM.T_W_eff, SIM.T_H_eff, c.T_C], tile: [c.PE_Q, c.PE_P, c.PE_C],
+    offset: [cy.pq*c.PE_Q, cy.pp*c.PE_P, cy.pc*c.PE_C], axes: ['T_W', 'T_H', 'T_C'],
+    extraLine: `Vùng hoạt động: ${c.PE_Q}×${c.PE_P}×${c.PE_C}`
+  }));
+
+  // 2. SRAM WEIGHT TILE -> PE CHUNK
+  cont.appendChild(renderTensorHTML({
+    name: `SRAM Weight Tile<br>Gồm ${c.T_K} bộ lọc`, colorKey: 'green', isArray: true,
+    numFilters: c.T_K, arrayOffset: 0,
+    activeIndex: cy.pk * c.PE_K,
+    total: [c.T_S, c.T_R, c.T_C], tile: [c.PE_S, c.PE_R, c.PE_C],
+    offset: [cy.ps*c.PE_S, cy.pr*c.PE_R, cy.pc*c.PE_C], axes: ['T_S', 'T_R', 'T_C'],
+    extraLine: `Vùng hoạt động: ${c.PE_K} khối ${c.PE_S}×${c.PE_R}×${c.PE_C}`
+  }));
+
+  // 3. SRAM PSUM TILE -> PE CHUNK
+  cont.appendChild(renderTensorHTML({
+    name: 'SRAM Psum Tile', colorKey: 'amber', isArray: false,
+    total: [c.T_Q, c.T_P, c.T_K], tile: [c.PE_Q, c.PE_P, c.PE_K],
+    offset: [cy.pq*c.PE_Q, cy.pp*c.PE_P, cy.pk*c.PE_K], axes: ['T_Q', 'T_P', 'T_K'],
+    extraLine: `Vùng hoạt động: ${c.PE_Q}×${c.PE_P}×${c.PE_K}`
+  }));
+}
+
+document.querySelectorAll('input[type=number]').forEach(el=>el.addEventListener('input',liveUpdate));
+liveUpdate();
+</script>
+</body>
+</html>
