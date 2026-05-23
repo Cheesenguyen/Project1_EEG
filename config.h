@@ -17,11 +17,14 @@ typedef struct {
 // counters
 typedef struct {
     /* Table A – Memory Hierarchy */
-    long dram_loads;        /* tile-loads  from DRAM (input + weight) */
-    long dram_stores;       /* tile-stores to   DRAM (output)         */
-    long sram_input_size;   /* bytes for one Input  tile in SRAM         */
-    long sram_weight_size;  /* bytes for one Weight tile in SRAM         */
-    long sram_psum_size;    /* bytes for Psum/Output buffer in SRAM      */
+    long dram_loads;          // tile-loads  from DRAM (input + weight) 
+    long dram_stores;         // tile-stores to   DRAM (output)         
+    long dram_input_loads;    // input loads riêng
+    long dram_weight_loads;   // weight loads riêng
+    long sram_input_size;     // bytes for one Input  tile in SRAM         
+    long sram_weight_size;    // bytes for one Weight tile in SRAM         
+    long sram_psum_size;      // bytes for Psum/Output buffer in SRAM      
+    long sram_total_size;     // = input + weight + psum
 
     /* Table B – Compute / Dataflow */
     long sram_input_reads;  /* times PE array reads from Input  buffer */

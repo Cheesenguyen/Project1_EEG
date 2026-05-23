@@ -1,3 +1,4 @@
+// READ FILE
 #include "parser.h"
 #include "utils.h"
 #include <stdio.h>
@@ -5,7 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 
-/* ── trim leading/trailing whitespace in-place ── */
+// trim leading/trailing whitespace in-place 
 static char *trim(char *s){
     while(isspace((unsigned char)*s)) s++;
     char *e = s + strlen(s) - 1;
@@ -13,7 +14,7 @@ static char *trim(char *s){
     return s;
 }
 
-/* ── Check if a Config has all required fields set ── */
+// Check if a Config has all required fields set 
 static int config_valid(const Config *c){
     return c->H > 0 && c->W > 0 && c->C > 0 &&
            c->K > 0 && c->R > 0 && c->S > 0 &&
@@ -21,7 +22,7 @@ static int config_valid(const Config *c){
            c->stride > 0;
 }
 
-/* ── Zero-init a Config with safe defaults ── */
+// Zero-init a Config with safe defaults 
 static void config_init(Config *c, int idx){
     memset(c, 0, sizeof(*c));
     c->stride  = 1;
@@ -88,7 +89,7 @@ int parse_config(const char *filename, Config *cases)
             fprintf(stderr,"[WARN] Unknown key '%s' — ignored.\n", key);
     }
 
-    /* flush last case (file may not end with blank line) */
+    // flush last case (file may not end with blank line) 
     if(in_case && config_valid(&cur)){
         if(n < MAX_CASES) cases[n++] = cur;
     }

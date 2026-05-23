@@ -3,8 +3,9 @@
 
 /*
  * Spatial Unrolling — SRAM → PE array
- * =====================================
- * Chiến lược: unroll theo chiều TK (output channels).
+ * 
+ * Chiến lược: unroll theo chiều TK (output channels)
+ * .
  *   → Mỗi cycle, TK_eff PE được kích hoạt song song.
  *   → Mỗi PE_k tính: out[oh,ow,k] += in[ih,iw,c] * w[k,c,r,s]
  *
@@ -34,34 +35,35 @@
  */
 void run_spatial(const Config *cfg, Metrics *m)
 {
+    // tính kích thước đầu ra
     int OH = out_dim(cfg->H, cfg->R, cfg->padding, cfg->stride);
     int OW = out_dim(cfg->W, cfg->S, cfg->padding, cfg->stride);
 
+    // tổng số tile phải cắt theo các chiều khác nhau. Vdu ảnh OH = 100, TH = 32 => n_th = 4
     int n_th = CEIL_DIV(OH, cfg->TH);
     int n_tw = CEIL_DIV(OW, cfg->TW);
     int n_tc = CEIL_DIV(cfg->C, cfg->TC);
     int n_tk = CEIL_DIV(cfg->K, cfg->TK);
 
+    // lấy kích thước thực tế của phần tile, tránh cấp phát thừa
     int TH_eff = MIN(cfg->TH, OH);
     int TW_eff = MIN(cfg->TW, OW);
     int TC_eff = MIN(cfg->TC, cfg->C);
     int TK_eff = MIN(cfg->TK, cfg->K);
 
-    /* Peak PE count: TK_eff PEs fire in parallel each cycle */
+    // số lượng PE tính song song trong 1 lần = số lượng output channel
     m->max_PE = TK_eff;
 
-    /* Cycles per tile: one parallel MAC burst per (oh,ow,r,s,c) */
+    // số chu kỳ cần thực hiên với mỗi tile (th * tw* r * r * c) do unroll theo k nên không còn k
     long cycles_per_tile = (long)TH_eff * TW_eff * cfg->R * cfg->S * TC_eff;
     long n_tiles         = (long)n_th * n_tw * n_tc * n_tk;
 
     m->total_cycles = cycles_per_tile * n_tiles;
 
     /*
-     * SRAM reads per cycle:
-     *   Input  buffer : 1 broadcast read  (all TK_eff PEs share same input value)
-     *   Weight buffer : 1 multicast read  (Weight buffer ships TK_eff values in
-     *                   one bus transaction — counted as 1 SRAM access event)
+     * số lần đọc dữ liệu từ sram trong 1 chu kỳ:
+     * input buffer: 1 lần đọc -> dùng chung cho toàn bộ PE
+     * weight buffer: TK_eff giá trị trọng số <=> TK_eff lần đọc
      */
-    m->sram_input_reads  = m->total_cycles;            /* 1 broadcast / cycle        */
-    m->sram_weight_reads = m->total_cycles * TK_eff;   /* TK_eff distinct addr/cycle */
-}
+    m->sram_input_reads  = m->total_cycles;            // 1 lần đọc * số chu kỳ
+    m->sram_weight_reads = m->total_cycles * TK_eff;   // TK-eff lần đọc * số chu kỳ
