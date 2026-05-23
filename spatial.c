@@ -67,3 +67,4 @@ void run_spatial(const Config *cfg, Metrics *m)
      */
     m->sram_input_reads  = m->total_cycles;            // 1 lần đọc * số chu kỳ
     m->sram_weight_reads = m->total_cycles * TK_eff;   // TK-eff lần đọc * số chu kỳ
+}

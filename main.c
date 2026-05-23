@@ -6,6 +6,7 @@
 #include "parser.h"
 #include "tiling.h"
 #include "spatial.h"
+#include "spatial_thw.h"
 #include "stationary.h"
 #include "metrics.h"
 #include "utils.h"
@@ -27,36 +28,45 @@ static int validate(const Config *c, int case_num){
     return ok;
 }
 
-/* fp_conv  : file để ghi conv stats
- * case_idx : 0 = case đầu tiên → ghi header; >0 → chỉ ghi data */
-static void simulate(const Config *cfg, Metrics *m, FILE *fp_conv, int case_idx){
+/* unroll_mode: 0 = TK, 1 = THW */
+static void simulate(const Config *cfg, Metrics *m, FILE *fp_conv,
+                     int case_idx, int unroll_mode){
     metrics_reset(m);
-    run_tiling    (cfg, m);
-    run_spatial   (cfg, m);
+    run_tiling(cfg, m);
+    if (unroll_mode == 0)
+        run_spatial    (cfg, m);   /* unroll TK  */
+    else
+        run_spatial_thw(cfg, m);   /* unroll TH×TW */
     run_stationary(cfg, m);
 
-    float *inp = NULL, *wt = NULL, *out = NULL;
-    int OH, OW;
-    if (conv_forward(cfg, &inp, &wt, &out, &OH, &OW) == 0) {
-        conv_print_sample(out, OH, OW, cfg->K, cfg->label);
-        if (fp_conv)
-            conv_write_stats(fp_conv, out, OH, OW, cfg->K, cfg->label,
-                             /*append=*/ case_idx > 0);
-        free(inp); free(wt); free(out);
-    } else {
-        fprintf(stderr, "[WARN] %s: conv_forward OOM -- skipped.\n", cfg->label);
+    /* conv_forward chỉ chạy 1 lần (kết quả không đổi theo unroll mode)
+     * → chỉ ghi conv stats ở lần đầu tiên (unroll_mode == 0) */
+    if (unroll_mode == 0) {
+        float *inp = NULL, *wt = NULL, *out = NULL;
+        int OH, OW;
+        if (conv_forward(cfg, &inp, &wt, &out, &OH, &OW) == 0) {
+            conv_print_sample(out, OH, OW, cfg->K, cfg->label);
+            if (fp_conv)
+                conv_write_stats(fp_conv, out, OH, OW, cfg->K, cfg->label,
+                                 /*append=*/ case_idx > 0);
+            free(inp); free(wt); free(out);
+        } else {
+            fprintf(stderr, "[WARN] %s: conv_forward OOM -- skipped.\n", cfg->label);
+        }
     }
 }
 
 int main(int argc, char *argv[])
 {
     const char *cfg_file  = (argc > 1) ? argv[1] : "configs.txt";
-    const char *csv_file  = (argc > 2) ? argv[2] : "results.csv";
-    const char *conv_file = (argc > 3) ? argv[3] : "conv_stats.csv";
+    const char *csv_tk    = (argc > 2) ? argv[2] : "results_tk.csv";
+    const char *csv_thw   = (argc > 3) ? argv[3] : "results_thw.csv";
+    const char *conv_file = (argc > 4) ? argv[4] : "conv_stats.csv";
 
     printf("              CONVOLUTION ARCHITECTURE SIMULATOR\n");
     printf("  Config file  : %s\n", cfg_file);
-    printf("  Metrics CSV  : %s\n", csv_file);
+    printf("  Metrics TK   : %s\n", csv_tk);
+    printf("  Metrics THW  : %s\n", csv_thw);
     printf("  Conv stats   : %s\n\n", conv_file);
 
     Config cases[MAX_CASES];
@@ -67,22 +77,27 @@ int main(int argc, char *argv[])
     }
     printf("  Found %d case(s). Simulating...\n", n);
 
-    /* Mở file conv stats trước vòng lặp */
     FILE *fp_conv = fopen(conv_file, "w");
     if (!fp_conv)
         fprintf(stderr,"[WARN] Cannot open '%s' for conv stats.\n", conv_file);
 
     Config  valid_cfgs[MAX_CASES];
-    Metrics valid_ms  [MAX_CASES];
+    Metrics ms_tk     [MAX_CASES];
+    Metrics ms_thw    [MAX_CASES];
     Metrics results   [MAX_CASES];
     int valid_count = 0;
 
     for(int i = 0; i < n; i++){
         printf("\n  [%d/%d] %s\n", i+1, n, cases[i].label);
         if(!validate(&cases[i], i+1)) continue;
-        simulate(&cases[i], &results[i], fp_conv, valid_count);
+
+        simulate(&cases[i], &results[i], fp_conv, valid_count, /*TK*/  0);
+        ms_tk [valid_count] = results[i];
+
+        simulate(&cases[i], &results[i], fp_conv, valid_count, /*THW*/ 1);
+        ms_thw[valid_count] = results[i];
+
         valid_cfgs[valid_count] = cases[i];
-        valid_ms  [valid_count] = results[i];
         valid_count++;
     }
 
@@ -93,16 +108,25 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    metrics_print_terminal(valid_count, valid_cfgs, valid_ms);
+    /* ── Terminal: in cả 2 bảng ── */
+    printf("\n          UNROLL: TK \n");
+    metrics_print_terminal(valid_count, valid_cfgs, ms_tk);
 
-    FILE *fp = fopen(csv_file, "w");
-    if(!fp){
-        fprintf(stderr,"[WARN] Cannot write to '%s'.\n", csv_file);
-    } else {
-        metrics_write_csv(fp, valid_count, valid_cfgs, valid_ms);
-        fclose(fp);
-        printf("  Metrics CSV saved to : %s\n\n", csv_file);
-    }
+    printf("\n          UNROLL: TH×TW \n");
+    metrics_print_terminal(valid_count, valid_cfgs, ms_thw);
+
+    /* ── CSV: 2 file riêng ── */
+    FILE *fp;
+    fp = fopen(csv_tk, "w");
+    if(!fp) fprintf(stderr,"[WARN] Cannot write '%s'.\n", csv_tk);
+    else { metrics_write_csv(fp, valid_count, valid_cfgs, ms_tk,  "TK");  fclose(fp); }
+
+    fp = fopen(csv_thw, "w");
+    if(!fp) fprintf(stderr,"[WARN] Cannot write '%s'.\n", csv_thw);
+    else { metrics_write_csv(fp, valid_count, valid_cfgs, ms_thw, "THW"); fclose(fp); }
+
+    printf("  Metrics TK  saved to : %s\n", csv_tk);
+    printf("  Metrics THW saved to : %s\n\n", csv_thw);
 
     return EXIT_SUCCESS;
 }

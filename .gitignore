@@ -5,7 +5,9 @@
 conv_sim
 
 # Output/Generated files
-results.txt conv_stats.csv results.csv
+results.txt
+conv_stats.csv
+results.csv
 
 # OS generated files (Tùy chọn, giữ cho repo sạch nếu mở trên các HĐH khác)
 .DS_Store
