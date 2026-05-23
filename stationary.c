@@ -3,7 +3,7 @@
 
 /*
  * Stationary Strategies — Temporal Reuse Analysis
- * =================================================
+ * 
  * Mỗi chiến lược quyết định biến nào "đứng yên" trong PE accumulator
  * và biến nào phải được đẩy ra PS buffer (SRAM) giữa các cycle.
  *
@@ -11,9 +11,8 @@
  *   out_tile = TH_eff × TW_eff × TK_eff  (số output neuron trong 1 tile)
  *   n_tiles  = n_th × n_tw × n_tc × n_tk (tổng số tile)
  *
- * ─────────────────────────────────────────────────────────────────────────
  * OS — Output Stationary
- * ─────────────────────────────────────────────────────────────────────────
+ * 
  * Psum của mỗi output neuron (oh,ow,k) LUÔN nằm trong PE accumulator
  * xuyên suốt toàn bộ vòng lặp (r,s,c) BÊN TRONG một tile (th,tw,tc,tk).
  *
@@ -29,9 +28,9 @@
  *
  * PS writes = PS reads = out_tile × n_th × n_tw × n_tk × (n_tc - 1)
  *
- * ─────────────────────────────────────────────────────────────────────────
+ * 
  * WS — Weight Stationary
- * ─────────────────────────────────────────────────────────────────────────
+ * 
  * Weight w[k,c,r,s] cố định trong PE. PE lần lượt xử lý các output
  * position (oh,ow). Với spatial unroll theo TK_eff:
  *
@@ -56,9 +55,9 @@
  * PS reads  = out_tile × (TC_eff × R × S - 1)   per tile group
  * (nhân với n_th × n_tw × n_tc × n_tk)
  *
- * ─────────────────────────────────────────────────────────────────────────
+ * 
  * IS — Input Stationary
- * ─────────────────────────────────────────────────────────────────────────
+ * 
  * Input in[ih,iw,c] cố định trong PE. PE quét tất cả weight dùng input đó.
  *
  * Loop order bên trong tile (IS-friendly):
@@ -80,7 +79,7 @@
  * PS writes = PS reads = out_tile × (TC_eff - 1) × n_th × n_tw × n_tc × n_tk
  */
 
-/* ── helpers ── */
+/*   helpers    */
 static void get_dims(const Config *cfg,
                      int *OH, int *OW,
                      int *n_th, int *n_tw, int *n_tc, int *n_tk,
@@ -98,7 +97,7 @@ static void get_dims(const Config *cfg,
     *TK_e = MIN(cfg->TK, cfg->K);
 }
 
-/* ── OS ── */
+/*   OS    */
 static void os_stat(const Config *cfg, Metrics *m)
 {
     int OH,OW,n_th,n_tw,n_tc,n_tk,TH_e,TW_e,TC_e,TK_e;
@@ -113,7 +112,7 @@ static void os_stat(const Config *cfg, Metrics *m)
     m->ps_buffer_reads  = spills;
 }
 
-/* ── WS ── */
+/*   WS    */
 static void ws_stat(const Config *cfg, Metrics *m)
 {
     int OH,OW,n_th,n_tw,n_tc,n_tk,TH_e,TW_e,TC_e,TK_e;
@@ -128,7 +127,7 @@ static void ws_stat(const Config *cfg, Metrics *m)
     m->ps_buffer_reads  = out_tile * (rsc_steps - 1) * n_tiles;
 }
 
-/* ── IS ── */
+/*   IS    */
 static void is_stat(const Config *cfg, Metrics *m)
 {
     int OH,OW,n_th,n_tw,n_tc,n_tk,TH_e,TW_e,TC_e,TK_e;
