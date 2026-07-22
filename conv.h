@@ -6,7 +6,6 @@
 
 /*
  * conv_forward — orchestrator vừa chạy thật vừa đếm metrics
- * ===========================================================
  * Luồng: DRAM → SRAM (tiling) → PE compute (spatial+strategy) → PS → DRAM
  * Metrics được đếm trực tiếp trong quá trình chạy.
  *

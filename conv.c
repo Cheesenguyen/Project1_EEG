@@ -24,10 +24,10 @@ static float lcg_rand(unsigned int *seed)
  *   for th, tw, tk:
  *     ps_buf_init()
  *     for tc:
- *       load_input_tile()   → dram_input_loads (phần tử), sram_input_bytes
- *       load_weight_tile()  → dram_weight_loads (phần tử), sram_weight_bytes
- *       pe_compute_*(strategy, unroll) → sram_*_reads, total_cycles, max_PE
- *     store_output_tile()   → dram_stores++
+ *       load_input_tile()   -> dram_input_loads (phần tử), sram_input_bytes
+ *       load_weight_tile()  -> dram_weight_loads (phần tử), sram_weight_bytes
+ *       pe_compute_*(strategy, unroll) -> sram_*_reads, total_cycles, max_PE
+ *     store_output_tile()   -> dram_stores++
  *
  *   m->dram_loads      = dram_input_loads + dram_weight_loads
  *   m->sram_total_bytes = sram_input_bytes + sram_weight_bytes
@@ -112,8 +112,8 @@ int conv_forward(const Config *cfg,
     /* Tổng hợp metrics theo strategy.
      *
      * OS: input và weight đều load lại cho mỗi tile (th,tw,tk,tc)
-     * WS: weight reuse qua th,tw → load n_tk×n_tc lần; input load n_all lần
-     * IS: input reuse qua tk → load n_th×n_tw×n_tc lần; weight load n_all lần
+     * WS: weight reuse qua th,tw -> load n_tk×n_tc lần; input load n_all lần
+     * IS: input reuse qua tk -> load n_th×n_tw×n_tc lần; weight load n_all lần
      * dram_stores: đếm trực tiếp trong store_output_tile — đúng.
      */
     long tile_input_elems  = (long)td.rf_h * td.rf_w * td.TC_eff;
@@ -148,6 +148,7 @@ int conv_forward(const Config *cfg,
     return 0;
 }
 
+// xuất dữ liệu thống kê min max mean,.. ra file csv
 void conv_write_stats(FILE *fp, const float *output, int OH, int OW, int K,
                       const char *label, int append)
 {
@@ -168,6 +169,7 @@ void conv_write_stats(FILE *fp, const float *output, int OH, int OW, int K,
     }
 }
 
+// in ra terminal
 void conv_print_sample(const float *output, int OH, int OW, int K,
                        const char *label)
 {

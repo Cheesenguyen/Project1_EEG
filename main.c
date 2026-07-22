@@ -30,7 +30,7 @@ static void simulate(const Config *cfg, Metrics *m, FILE *fp_conv,
     float *inp = NULL, *wt = NULL, *out = NULL;
     int OH, OW;
 
-    /* conv_forward vừa chạy thật vừa đếm metrics trực tiếp */
+    /* conv_forward vừa chạy vừa đếm metrics trực tiếp */
     if (conv_forward(cfg, m, &inp, &wt, &out, &OH, &OW, unroll_mode) == 0) {
         conv_print_sample(out, OH, OW, cfg->K, cfg->label);
         if (fp_conv && unroll_mode == 0)
