@@ -2,69 +2,102 @@
 #include "utils.h"
 
 /*
- * Spatial Unrolling — unroll theo TH × TW (vị trí không gian)
- * =============================================================
- * Chiến lược: unroll đồng thời theo cả 2 chiều TH và TW.
- *   → Mỗi cycle, TH_eff × TW_eff PE được kích hoạt song song.
- *   → Mỗi PE_(oh,ow) tính: out[oh,ow,k] += in[ih,iw,c] * w[k,c,r,s]
- *     với (ih,iw) phụ thuộc vào vị trí (oh,ow) của PE đó.
+ * đọc 16 input khác nhau, 1 weight
+ * pe_compute_thw — unroll THW, PE_MAX cố định
+ * Dùng td->act_th, act_tw, act_tk, act_tc (kích thước thực tế của tile hiện tại)
+ * để đảm bảo metrics đúng cho partial tile.
  *
- * Loop thực tế bên trong mỗi tile (th,tw,tc,tk):
- *   for k  in TK_eff
- *     for r  in R
- *       for s  in S
- *         for c  in TC_eff
- *           [PARALLEL over (oh,ow) in TH_eff × TW_eff]  ← 1 cycle
- *
- * Broadcast / Read policy:
- *   Weight : w[k,c,r,s] BROADCAST tới tất cả TH_eff×TW_eff PE
- *            → tất cả PE dùng CÙNG 1 weight → 1 địa chỉ SRAM duy nhất
- *            → sram_weight_reads += 1 / cycle
- *   Input  : mỗi PE_(oh,ow) đọc in[oh*stride+r-pad, ow*stride+s-pad, c]
- *            → mỗi PE đọc địa chỉ input KHÁC NHAU
- *            → sram_input_reads  += TH_eff × TW_eff / cycle
- *
- * Tổng:
- *   cycles_per_tile   = TK_eff × R × S × TC_eff
- *   total_cycles      = cycles_per_tile × n_th × n_tw × n_tc × n_tk
- *   sram_weight_reads = total_cycles × 1                 (broadcast)
- *   sram_input_reads  = total_cycles × TH_eff × TW_eff  (mỗi PE đọc riêng)
- *
- * Lưu ý: max_PE = TH_eff × TW_eff
+ * pe_used      = min(act_th*act_tw, PE_MAX)
+ * n_pe_batches = ceil(act_th*act_tw / PE_MAX)
  */
-void run_spatial_thw(const Config *cfg, Metrics *m)
+void pe_compute_thw(const float *sram_in, const float *sram_w,
+                    float *ps_buf,
+                    const Config *cfg, const TileDesc *td,
+                    Metrics *m)
 {
-    int OH = out_dim(cfg->H, cfg->R, cfg->padding, cfg->stride);
-    int OW = out_dim(cfg->W, cfg->S, cfg->padding, cfg->stride);
+    int act_th = td->act_th, act_tw = td->act_tw;
+    int act_tk = td->act_tk, act_tc = td->act_tc;
 
-    int n_th = CEIL_DIV(OH, cfg->TH);
-    int n_tw = CEIL_DIV(OW, cfg->TW);
-    int n_tc = CEIL_DIV(cfg->C, cfg->TC);
-    int n_tk = CEIL_DIV(cfg->K, cfg->TK);
+    long thw          = (long)act_th * act_tw;
+    int  pe_used      = (int)MIN(thw, PE_MAX);
+    int  n_pe_batches = (int)CEIL_DIV(thw, PE_MAX);
+    if (pe_used > m->max_PE) m->max_PE = pe_used;
 
-    int TH_eff = MIN(cfg->TH, OH);
-    int TW_eff = MIN(cfg->TW, OW);
-    int TC_eff = MIN(cfg->TC, cfg->C);
-    int TK_eff = MIN(cfg->TK, cfg->K);
+    switch (cfg->strategy) {
+    case OS: m->num_ps_buffers = pe_used; break;
+    case WS:
+    case IS: m->num_ps_buffers = (long)td->TH_eff * td->TW_eff * td->TK_eff; break;
+    }
 
-    /* Peak PE count: TH_eff × TW_eff PEs fire in parallel each cycle */
-    m->max_PE = (long)TH_eff * TW_eff;
+    switch (cfg->strategy) {
 
-    /*
-     * Cycles per tile:
-     *   TH và TW đã được unroll ra ngoài (chạy song song trong 1 cycle)
-     *   nên chỉ còn TK_eff × R × S × TC_eff bước tuần tự
-     */
-    long cycles_per_tile = (long)TK_eff * cfg->R * cfg->S * TC_eff;
-    long n_tiles         = (long)n_th * n_tw * n_tc * n_tk;
+    case OS:
+        for (int ki = 0; ki < act_tk; ki++) {
+            for (int r = 0; r < cfg->R; r++) {
+                for (int s = 0; s < cfg->S; s++) {
+                    for (int c = 0; c < act_tc; c++) {
+                        float wt_val = sram_w[((ki * cfg->R + r) * cfg->S + s) * td->TC_eff + c];
+                        for (int i = 0; i < act_th; i++) {
+                            int si = i * cfg->stride + r;
+                            for (int j = 0; j < act_tw; j++) {
+                                int sj = j * cfg->stride + s;
+                                float in_val = sram_in[(si * td->rf_w + sj) * td->TC_eff + c];
+                                ps_buf[(i * td->TW_eff + j) * td->TK_eff + ki] += in_val * wt_val;
+                            }
+                        }
+                        m->sram_weight_reads += 1;
+                        m->sram_input_reads  += thw;
+                        m->total_cycles      += n_pe_batches;
+                    }
+                }
+            }
+        }
+        break;
 
-    m->total_cycles = cycles_per_tile * n_tiles;
+    case WS:
+        for (int ki = 0; ki < act_tk; ki++) {
+            for (int r = 0; r < cfg->R; r++) {
+                for (int s = 0; s < cfg->S; s++) {
+                    for (int c = 0; c < act_tc; c++) {
+                        float wt_val = sram_w[((ki * cfg->R + r) * cfg->S + s) * td->TC_eff + c];
+                        for (int i = 0; i < act_th; i++) {
+                            int si = i * cfg->stride + r;
+                            for (int j = 0; j < act_tw; j++) {
+                                int sj = j * cfg->stride + s;
+                                float in_val = sram_in[(si * td->rf_w + sj) * td->TC_eff + c];
+                                ps_buf[(i * td->TW_eff + j) * td->TK_eff + ki] += in_val * wt_val;
+                            }
+                        }
+                        m->sram_weight_reads += 1;
+                        m->sram_input_reads  += thw;
+                        m->total_cycles      += n_pe_batches;
+                    }
+                }
+            }
+        }
+        break;
 
-    /*
-     * SRAM reads per cycle:
-     *   Weight buffer : 1 broadcast read  (tất cả PE dùng cùng w[k,c,r,s])
-     *   Input  buffer : TH_eff×TW_eff reads (mỗi PE đọc ô input khác nhau)
-     */
-    m->sram_weight_reads = m->total_cycles;                          /* 1 broadcast / cycle       */
-    m->sram_input_reads  = m->total_cycles * (long)TH_eff * TW_eff; /* mỗi PE đọc input riêng    */
+    case IS:
+        for (int c = 0; c < act_tc; c++) {
+            m->sram_input_reads += thw;
+            for (int r = 0; r < cfg->R; r++) {
+                for (int s = 0; s < cfg->S; s++) {
+                    for (int ki = 0; ki < act_tk; ki++) {
+                        float wt_val = sram_w[((ki * cfg->R + r) * cfg->S + s) * td->TC_eff + c];
+                        for (int i = 0; i < act_th; i++) {
+                            int si = i * cfg->stride + r;
+                            for (int j = 0; j < act_tw; j++) {
+                                int sj = j * cfg->stride + s;
+                                float in_val = sram_in[(si * td->rf_w + sj) * td->TC_eff + c];
+                                ps_buf[(i * td->TW_eff + j) * td->TK_eff + ki] += in_val * wt_val;
+                            }
+                        }
+                        m->sram_weight_reads += 1;
+                        m->total_cycles      += n_pe_batches;
+                    }
+                }
+            }
+        }
+        break;
+    }
 }

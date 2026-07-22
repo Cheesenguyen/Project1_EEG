@@ -1,64 +1,115 @@
 #include "tiling.h"
 #include "utils.h"
+#include <string.h>
+
+TileDesc compute_tile(const Config *cfg)
+{
+    TileDesc td;
+    td.OH     = cfg->H;
+    td.OW     = cfg->W;
+    td.n_th   = CEIL_DIV(td.OH, cfg->TH);
+    td.n_tw   = CEIL_DIV(td.OW, cfg->TW);
+    td.n_tc   = CEIL_DIV(cfg->C, cfg->TC);
+    td.n_tk   = CEIL_DIV(cfg->K, cfg->TK);
+    td.TH_eff = MIN(cfg->TH, td.OH);
+    td.TW_eff = MIN(cfg->TW, td.OW);
+    td.TC_eff = MIN(cfg->TC, cfg->C);
+    td.TK_eff = MIN(cfg->TK, cfg->K);
+    td.rf_h   = (td.TH_eff - 1) * cfg->stride + cfg->R;
+    td.rf_w   = (td.TW_eff - 1) * cfg->stride + cfg->S;
+    td.K_total = cfg->K;
+    return td;
+}
 
 /*
- * Tiling — DRAM -> SRAM
- *
- * Vòng lặp tile (thứ tự ngoài → trong):
- *   for th  in CEIL(OH/TH)
- *     for tw  in CEIL(OW/TW)
- *       for tk  in CEIL(K/TK)      ← output-channel tile
- *         for tc  in CEIL(C/TC)    ← input-channel  tile
- *
- * DRAM access policy:
- *   Input tile  (th,tw,tc) : cần cho tất cả tk → load 1 lần / (th,tw,tc)
- *                             = n_th × n_tw × n_tc  lần load
- *   Weight tile (tk,tc)    : dùng cho tất cả (th,tw) → load 1 lần / (tk,tc)
- *                             = n_tk × n_tc  lần load
- *   Output tile (th,tw,tk) : ghi sau khi tc loop xong
- *                             = n_th × n_tw × n_tk  lần store
- *
- * SRAM sizing (float32 = 4 bytes/element):
- *   Input  buffer : receptive-field footprint = (TH_eff-1)*stride+R
- *                                             × (TW_eff-1)*stride+S
- *                                             × TC_eff
- *   Weight buffer : TK_eff × TC_eff × R × S
- *   Psum buffer   : TH_eff × TW_eff × TK_eff   (output tile)
+ * load_input_tile
+ * DRAM -> SRAM: copy vùng input tương ứng tile (th,tw,tc).
+ * Đếm: dram_input_loads (số phần tử), sram_input_bytes.
  */
-void run_tiling(const Config *cfg, Metrics *m)
+void load_input_tile(const float *dram_input, float *sram_in,
+                     const Config *cfg, const TileDesc *td,
+                     int th, int tw, int tc)
 {
-    int OH = out_dim(cfg->H, cfg->R, cfg->padding, cfg->stride);
-    int OW = out_dim(cfg->W, cfg->S, cfg->padding, cfg->stride);
+    int oh_start = th * cfg->TH;
+    int ow_start = tw * cfg->TW;
+    int ih_start = oh_start * cfg->stride - cfg->padding;
+    int iw_start = ow_start * cfg->stride - cfg->padding;
+    int c_start  = tc * cfg->TC;
+    int P = cfg->P, Q = cfg->Q;
 
-    // tổng số tile phải cắt theo các chiều khác nhau. Vdu ảnh OH = 100, TH = 32 => n_th = 4
-    int n_th = CEIL_DIV(OH, cfg->TH);
-    int n_tw = CEIL_DIV(OW, cfg->TW);
-    int n_tc = CEIL_DIV(cfg->C, cfg->TC);
-    int n_tk = CEIL_DIV(cfg->K, cfg->TK);
+    for (int i = 0; i < td->rf_h; i++) {
+        int ih = ih_start + i;
+        for (int j = 0; j < td->rf_w; j++) {
+            int iw = iw_start + j;
+            for (int c = 0; c < td->TC_eff; c++) {
+                float val = 0.0f;
+                if (ih >= 0 && ih < P && iw >= 0 && iw < Q)
+                    val = dram_input[(ih * Q + iw) * cfg->C + (c_start + c)];
+                sram_in[(i * td->rf_w + j) * td->TC_eff + c] = val;
+            }
+        }
+    }
 
-    // lấy kích thước thực tế của phần tile, tránh cấp phát thừa
-    int TH_eff = MIN(cfg->TH, OH);
-    int TW_eff = MIN(cfg->TW, OW);
-    int TC_eff = MIN(cfg->TC, cfg->C);
-    int TK_eff = MIN(cfg->TK, cfg->K);
+    /* dram_input_loads và sram_input_bytes tính trong conv_forward */
+}
 
-    // tính ngược lại kích thước của input 
-    int rf_h = (TH_eff - 1) * cfg->stride + cfg->R;
-    int rf_w = (TW_eff - 1) * cfg->stride + cfg->S;
+/*
+ * load_weight_tile
+ * DRAM -> SRAM: copy weight tile (tk,tc).
+ * Đếm: dram_weight_loads (số phần tử), sram_weight_bytes tính .
+ */
+void load_weight_tile(const float *dram_weight, float *sram_w,
+                      const Config *cfg, const TileDesc *td,
+                      int tk, int tc)
+{
+    int k_start   = tk * cfg->TK;
+    int c_start   = tc * cfg->TC;
+    int actual_tk = MIN(td->TK_eff, cfg->K - k_start);  
+    int actual_tc = MIN(td->TC_eff, cfg->C - c_start);
 
-    // Dung lượng đã sử dụng trong sram
-    m->sram_input_size  = (long)rf_h  * rf_w  * TC_eff  * 4;
-    m->sram_weight_size = (long)TK_eff * TC_eff * cfg->R * cfg->S * 4;
-    m->sram_psum_size   = (long)TH_eff * TW_eff * TK_eff * 4;
-    m->sram_total_size   = m->sram_input_size + m->sram_weight_size + m->sram_psum_size;
+    for (int ki = 0; ki < actual_tk; ki++) {
+        int k = k_start + ki;
+        for (int r = 0; r < cfg->R; r++) {
+            for (int s = 0; s < cfg->S; s++) {
+                for (int c = 0; c < actual_tc; c++) {
+                    sram_w[((ki * cfg->R + r) * cfg->S + s) * td->TC_eff + c] =
+                        dram_weight[((k * cfg->R + r) * cfg->S + s) * cfg->C + (c_start + c)];
+                }
+            }
+        }
+    }
 
-    // đếm số lần load từng biến
-    long input_loads   = (long)n_th * n_tw * n_tc;
-    long weight_loads  = (long)n_tk * n_tc;
-    long output_stores = (long)n_th * n_tw * n_tk;
+    /* dram_weight_loads và sram_weight_bytes tính trong conv_forward */
+}
 
-    m->dram_input_loads  = input_loads;
-    m->dram_weight_loads = weight_loads;
-    m->dram_loads        = input_loads + weight_loads;
-    m->dram_stores = output_stores;
+/*
+ * store_output_tile
+ * PS -> DRAM: ghi output tile (th,tw,tk).
+ * Đếm: dram_stores++.
+ */
+void store_output_tile(float *dram_output, const float *ps_buf,
+                       const TileDesc *td,
+                       int th, int tw, int tk,
+                       Metrics *m)
+{
+    int oh_start  = th * td->TH_eff;
+    int ow_start  = tw * td->TW_eff;
+    int k_start   = tk * td->TK_eff;
+    int actual_th = MIN(td->TH_eff, td->OH      - oh_start);  
+    int actual_tw = MIN(td->TW_eff, td->OW      - ow_start);
+    int actual_tk = MIN(td->TK_eff, td->K_total - k_start);
+
+    for (int i = 0; i < actual_th; i++) {
+        for (int j = 0; j < actual_tw; j++) {
+            for (int ki = 0; ki < actual_tk; ki++) {
+                int oh = oh_start + i;
+                int ow = ow_start + j;
+                int k  = k_start  + ki;
+                dram_output[(oh * td->OW + ow) * td->K_total + k] =
+                    ps_buf[(i * td->TW_eff + j) * td->TK_eff + ki];
+            }
+        }
+    }
+
+    m->dram_stores++;
 }

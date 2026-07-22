@@ -1,12 +1,15 @@
 #include "conv.h"
+#include "tiling.h"
+#include "spatial.h"
+#include "spatial_thw.h"
+#include "stationary.h"
 #include "utils.h"
+#include "metrics.h"
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <math.h>
-#include <time.h>
+#include <string.h>
 
-/* ── Simple LCG rand in [-0.5, 0.5] for reproducible fills ── */
 static float lcg_rand(unsigned int *seed)
 {
     *seed = (*seed) * 1664525u + 1013904223u;
@@ -15,147 +18,179 @@ static float lcg_rand(unsigned int *seed)
 
 /*
  * conv_forward
- * ============
- * Tính phép tích chập chuẩn (standard 2D convolution, multi-channel).
+ * Orchestrator — vừa chạy thật vừa đếm metrics trực tiếp.
  *
- * Layout:
- *   input  : [H][W][C]      → index: (h*W + w)*C + c
- *   weight : [K][R][S][C]   → index: ((k*R + r)*S + s)*C + c
- *   output : [OH][OW][K]    → index: (oh*OW + ow)*K + k
+ * Flow:
+ *   for th, tw, tk:
+ *     ps_buf_init()
+ *     for tc:
+ *       load_input_tile()   → dram_input_loads (phần tử), sram_input_bytes
+ *       load_weight_tile()  → dram_weight_loads (phần tử), sram_weight_bytes
+ *       pe_compute_*(strategy, unroll) → sram_*_reads, total_cycles, max_PE
+ *     store_output_tile()   → dram_stores++
  *
- * Padding được xử lý bằng zero-padding (giá trị ngoài biên = 0).
+ *   m->dram_loads      = dram_input_loads + dram_weight_loads
+ *   m->sram_total_bytes = sram_input_bytes + sram_weight_bytes
  */
 int conv_forward(const Config *cfg,
+                 Metrics *m,
                  float **out_input,
                  float **out_weight,
                  float **out_output,
-                 int *OH_out, int *OW_out)
+                 int *OH_out, int *OW_out,
+                 int unroll_mode)
 {
-    int OH = out_dim(cfg->H, cfg->R, cfg->padding, cfg->stride);
-    int OW = out_dim(cfg->W, cfg->S, cfg->padding, cfg->stride);
-    *OH_out = OH;
-    *OW_out = OW;
+    metrics_reset(m);
 
-    long input_sz  = (long)cfg->H * cfg->W * cfg->C;
+    TileDesc td = compute_tile(cfg);
+    *OH_out = td.OH;
+    *OW_out = td.OW;
+
+    // cấp phát bộ nhớ cho dram, sram
+    long input_sz  = (long)cfg->P * cfg->Q * cfg->C;
     long weight_sz = (long)cfg->K * cfg->R * cfg->S * cfg->C;
-    long output_sz = (long)OH * OW * cfg->K;
+    long output_sz = (long)td.OH  * td.OW  * cfg->K;
 
-    float *input  = (float *)malloc(input_sz  * sizeof(float));
-    float *weight = (float *)malloc(weight_sz * sizeof(float));
-    float *output = (float *)calloc(output_sz,  sizeof(float)); /* zero-init for accumulation */
+    float *dram_input  = (float *)malloc(input_sz  * sizeof(float));
+    float *dram_weight = (float *)malloc(weight_sz * sizeof(float));
+    float *dram_output = (float *)calloc(output_sz,  sizeof(float));
 
-    if (!input || !weight || !output) {
-        free(input); free(weight); free(output);
+    long sram_in_sz = (long)td.rf_h * td.rf_w * td.TC_eff;
+    long sram_w_sz  = (long)td.TK_eff * cfg->R * cfg->S * td.TC_eff;
+    long ps_sz      = (long)td.TH_eff * td.TW_eff * td.TK_eff;
+
+    float *sram_in = (float *)malloc(sram_in_sz * sizeof(float));
+    float *sram_w  = (float *)malloc(sram_w_sz  * sizeof(float));
+    float *ps_buf  = (float *)malloc(ps_sz       * sizeof(float));
+
+    if (!dram_input || !dram_weight || !dram_output ||
+        !sram_in || !sram_w || !ps_buf) {
+        free(dram_input); free(dram_weight); free(dram_output);
+        free(sram_in); free(sram_w); free(ps_buf);
         return -1;
     }
 
-    /* Fill input and weight with deterministic pseudo-random values */
     unsigned int seed = 42u;
-    for (long i = 0; i < input_sz;  i++) input [i] = lcg_rand(&seed);
-    for (long i = 0; i < weight_sz; i++) weight[i] = lcg_rand(&seed);
+    for (long i = 0; i < input_sz;  i++) dram_input [i] = lcg_rand(&seed);
+    for (long i = 0; i < weight_sz; i++) dram_weight[i] = lcg_rand(&seed);
+
+    /* PS buffer size — cố định theo tile, không phụ thuộc strategy */
 
     /*
-     * Core convolution loop
-     * ---------------------
-     * Tiling-aware loop order: iterate output positions, then filter, then channels.
-     * Đây là "reference implementation" — không tối ưu, nhưng đúng về mặt toán học.
+     * Main simulation loop: th  tw  tk  tc
+     * Metrics được đếm trực tiếp trong các hàm con.
      */
-    int H = cfg->H, W = cfg->W, C = cfg->C;
-    int K = cfg->K, R = cfg->R, S = cfg->S;
-    int stride = cfg->stride, padding = cfg->padding;
+    for (int th = 0; th < td.n_th; th++) {
+        td.act_th = MIN(td.TH_eff, td.OH - th * cfg->TH);
+        for (int tw = 0; tw < td.n_tw; tw++) {
+            td.act_tw = MIN(td.TW_eff, td.OW - tw * cfg->TW);
+            for (int tk = 0; tk < td.n_tk; tk++) {
+                td.act_tk = MIN(td.TK_eff, cfg->K - tk * cfg->TK);
 
-    for (int oh = 0; oh < OH; oh++) {
-        for (int ow = 0; ow < OW; ow++) {
-            for (int k = 0; k < K; k++) {
-                float acc = 0.0f;
-                for (int r = 0; r < R; r++) {
-                    int ih = oh * stride + r - padding;
-                    if (ih < 0 || ih >= H) continue;   /* zero-pad */
-                    for (int s = 0; s < S; s++) {
-                        int iw = ow * stride + s - padding;
-                        if (iw < 0 || iw >= W) continue; /* zero-pad */
-                        for (int c = 0; c < C; c++) {
-                            float in_val = input [(ih * W + iw) * C + c];
-                            float wt_val = weight[((k * R + r) * S + s) * C + c];
-                            acc += in_val * wt_val;
-                        }
-                    }
+                ps_buf_init(ps_buf, &td);
+  
+                for (int tc = 0; tc < td.n_tc; tc++) {
+                    td.act_tc = MIN(td.TC_eff, cfg->C - tc * cfg->TC);
+
+                    /* DRAM -> SRAM */
+                    load_input_tile (dram_input,  sram_in, cfg, &td, th, tw, tc);
+                    load_weight_tile(dram_weight, sram_w,  cfg, &td, tk, tc);
+
+                    /* SRAM -> PE -> PS: loop order theo strategy + unroll mode */
+                    if (unroll_mode == 0)
+                        pe_compute_tk (sram_in, sram_w, ps_buf, cfg, &td, m);
+                    else
+                        pe_compute_thw(sram_in, sram_w, ps_buf, cfg, &td, m);
                 }
-                output[(oh * OW + ow) * K + k] = acc;
+
+                /* PS -> DRAM */
+                store_output_tile(dram_output, ps_buf, &td, th, tw, tk, m);
             }
         }
     }
 
-    *out_input  = input;
-    *out_weight = weight;
-    *out_output = output;
+    /* Tổng hợp metrics theo strategy.
+     *
+     * OS: input và weight đều load lại cho mỗi tile (th,tw,tk,tc)
+     * WS: weight reuse qua th,tw → load n_tk×n_tc lần; input load n_all lần
+     * IS: input reuse qua tk → load n_th×n_tw×n_tc lần; weight load n_all lần
+     * dram_stores: đếm trực tiếp trong store_output_tile — đúng.
+     */
+    long tile_input_elems  = (long)td.rf_h * td.rf_w * td.TC_eff;
+    long tile_weight_elems = (long)td.TK_eff * cfg->R * cfg->S * td.TC_eff;
+    long n_spatial = (long)td.n_th * td.n_tw;
+    long n_all     = n_spatial * td.n_tc * td.n_tk;
+
+    switch (cfg->strategy) {
+    case OS:
+        m->dram_input_loads  = n_all * tile_input_elems;
+        m->dram_weight_loads = n_all * tile_weight_elems;
+        break;
+    case WS:
+        m->dram_input_loads  = n_all * tile_input_elems;
+        m->dram_weight_loads = (long)td.n_tk * td.n_tc * tile_weight_elems;
+        break;
+    case IS:
+        m->dram_input_loads  = (long)td.n_th * td.n_tw * td.n_tc * tile_input_elems;
+        m->dram_weight_loads = n_all * tile_weight_elems;
+        break;
+    }
+    m->dram_loads        = m->dram_input_loads + m->dram_weight_loads;
+    m->sram_input_bytes  = m->dram_input_loads  * 4;
+    m->sram_weight_bytes = m->dram_weight_loads * 4;
+    m->sram_total_bytes  = m->sram_input_bytes  + m->sram_weight_bytes;
+
+    free(sram_in); free(sram_w); free(ps_buf);
+
+    *out_input  = dram_input;
+    *out_weight = dram_weight;
+    *out_output = dram_output;
     return 0;
 }
 
-/*
- * conv_write_stats
- * ================
- * Ghi thống kê min/max/mean/sum của từng output channel k vào file CSV.
- *
- * Mỗi dòng: label, k, min, max, mean, sum
- * append=0 → ghi header trước; append=1 → không ghi header (case tiếp theo)
- */
 void conv_write_stats(FILE *fp, const float *output, int OH, int OW, int K,
                       const char *label, int append)
 {
     if (!append)
         fprintf(fp, "label,channel_k,min,max,mean,sum\n");
 
-    long spatial = (long)OH * OW;   /* số phần tử mỗi channel */
-
+    long spatial = (long)OH * OW;
     for (int k = 0; k < K; k++) {
         float vmin = output[k], vmax = output[k], vsum = 0.0f;
-
         for (long i = 0; i < spatial; i++) {
-            float v = output[i * K + k];   /* layout [OH][OW][K] */
+            float v = output[i * K + k];
             if (v < vmin) vmin = v;
             if (v > vmax) vmax = v;
             vsum += v;
         }
-        float vmean = vsum / (float)spatial;
-
         fprintf(fp, "\"%s\",%d,%.6f,%.6f,%.6f,%.6f\n",
-                label, k, vmin, vmax, vmean, vsum);
+                label, k, vmin, vmax, vsum/(float)spatial, vsum);
     }
 }
 
-/*
- * conv_print_sample
- * =================
- * In 3×3 góc trên-trái và vài thống kê cơ bản để kiểm tra kết quả.
- */
 void conv_print_sample(const float *output, int OH, int OW, int K,
                        const char *label)
 {
     printf("\n  [Conv output — %s]\n", label);
-
-    /* Compute min/max/mean over first output channel (k=0) */
     float vmin = output[0], vmax = output[0], vsum = 0.0f;
     long  cnt  = (long)OH * OW;
     for (long i = 0; i < cnt; i++) {
-        float v = output[i * K];   /* k=0 */
+        float v = output[i * K];
         if (v < vmin) vmin = v;
         if (v > vmax) vmax = v;
         vsum += v;
     }
-    printf("    Output shape : %d × %d × %d\n", OH, OW, K);
+    printf("    Output shape : %d x %d x %d\n", OH, OW, K);
     printf("    Ch-0 stats   : min=%.4f  max=%.4f  mean=%.4f\n",
            vmin, vmax, vsum / cnt);
 
-    /* Print top-left 3×3 corner, channel 0 */
     int rows = (OH < 3) ? OH : 3;
     int cols = (OW < 3) ? OW : 3;
     printf("    Top-left %dx%d corner (k=0):\n", rows, cols);
     for (int oh = 0; oh < rows; oh++) {
         printf("      ");
-        for (int ow = 0; ow < cols; ow++) {
-            printf("%10.4f ", output[(oh * OW + ow) * K + 0]);
-        }
+        for (int ow = 0; ow < cols; ow++)
+            printf("%10.4f ", output[(oh * OW + ow) * K]);
         printf("\n");
     }
 }

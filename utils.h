@@ -4,6 +4,7 @@
 #include <string.h>
 #include "config.h"
 
+#define PE_MAX         16               /* số PE vật lý cố định             */
 #define MIN(a,b)       ((a)<(b)?(a):(b))
 #define MAX(a,b)       ((a)>(b)?(a):(b))
 #define CEIL_DIV(a,b)  (((a)+(b)-1)/(b))        // làm tròn lên -> tính số lượng vòng lặp cần thiết

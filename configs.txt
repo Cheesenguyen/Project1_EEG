@@ -1,259 +1,268 @@
-# Format: KEY=VALUE, mỗi case cách nhau bằng 1 dòng trống
-# Dòng bắt đầu bằng # là comment
-#
-# Tham số bắt buộc:
-#   H, W, C          : Input Feature Map (H=128, W=128, C=1024 cố định)
-#   K, R, S          : Filter (K=số output channel, R×S=kernel size)
-#   TH, TW, TC, TK   : Tile sizes
-#   stride, padding  : Conv config
-#   strategy         : WS | IS | OS
-
-
-# ── NHÓM 1: So sánh Strategy (Tile nhỏ - An toàn cho SRAM) ──
-
-# Case 1 — Tile nhỏ, Weight Stationary
-label=Case 1 (WS, small tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=8
-TW=8
-TC=64
-TK=32
-stride=1
-padding=1
-strategy=WS
-
-# Case 2 — Tile nhỏ, Input Stationary
-label=Case 2 (IS, small tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=8
-TW=8
-TC=64
-TK=32
-stride=1
-padding=1
-strategy=IS
-
-# Case 3 — Tile nhỏ, Output Stationary
-label=Case 3 (OS, small tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=8
-TW=8
-TC=64
-TK=32
-stride=1
-padding=1
-strategy=OS
-
-# ── NHÓM 2: So sánh Strategy (Tile cân bằng) ────────────────
-
-# Case 4 — Tile vừa, WS
-label=Case 4 (WS, mid tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=16
-TW=16
-TC=128
-TK=32
-stride=1
-padding=1
-strategy=WS
-
-# Case 5 — Tile vừa, IS
-label=Case 5 (IS, mid tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=16
-TW=16
-TC=128
-TK=32
-stride=1
-padding=1
-strategy=IS
-
-# Case 6 — Tile vừa, OS
-label=Case 6 (OS, mid tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=16
-TW=16
-TC=128
-TK=32
-stride=1
-padding=1
-strategy=OS
-
-# ── NHÓM 3: So sánh Strategy (Tile lớn - Ép băng thông) ─────
-
-# Case 7 — Tile lớn, WS
-label=Case 7 (WS, big tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=32
-TW=32
-TC=256
-TK=64
-stride=1
-padding=1
-strategy=WS
-
-# Case 8 — Tile lớn, IS
-label=Case 8 (IS, big tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=32
-TW=32
-TC=256
-TK=64
-stride=1
-padding=1
-strategy=IS
-
-# Case 9 — Tile lớn, OS
-label=Case 9 (OS, big tile)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=32
-TW=32
-TC=256
-TK=64
-stride=1
-padding=1
-strategy=OS
-
-# ── NHÓM 4: Cắt cực mạnh theo Không gian (Spatial Focus) ────
-
-# Case 10 — Tile không gian nhỏ, Kênh lớn, WS
-label=Case 10 (WS, spatial focus)
-H=128
-W=128
+label=Case 01 (WS, TH=TW=4, TC=64, TK=16)
+P=128
+Q=128
 C=1024
 K=64
 R=3
 S=3
 TH=4
 TW=4
-TC=512
-TK=64
-stride=1
-padding=1
-strategy=WS
-
-# Case 11 — Tile không gian nhỏ, Kênh lớn, IS
-label=Case 11 (IS, spatial focus)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=4
-TW=4
-TC=512
-TK=64
-stride=1
-padding=1
-strategy=IS
-
-# Case 12 — Tile không gian nhỏ, Kênh lớn, OS
-label=Case 12 (OS, spatial focus)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=4
-TW=4
-TC=512
-TK=64
-stride=1
-padding=1
-strategy=OS
-
-# ── NHÓM 5: Cắt cực mạnh theo Kênh (Channel Focus) ──────────
-
-# Case 13 — Tile kênh nhỏ, Không gian lớn, WS
-label=Case 13 (WS, channel focus)
-H=128
-W=128
-C=1024
-K=64
-R=3
-S=3
-TH=64
-TW=64
-TC=32
+TC=64
 TK=16
 stride=1
 padding=1
 strategy=WS
 
-# Case 14 — Tile kênh nhỏ, Không gian lớn, IS
-label=Case 14 (IS, channel focus)
-H=128
-W=128
+label=Case 02 (IS, TH=TW=4, TC=64, TK=16)
+P=128
+Q=128
 C=1024
 K=64
 R=3
 S=3
-TH=64
-TW=64
-TC=32
+TH=4
+TW=4
+TC=64
 TK=16
 stride=1
 padding=1
 strategy=IS
 
-# Case 15 — Tile kênh nhỏ, Không gian lớn, OS
-label=Case 15 (OS, channel focus)
-H=128
-W=128
+label=Case 03 (OS, TH=TW=4, TC=64, TK=16)
+P=128
+Q=128
 C=1024
 K=64
 R=3
 S=3
-TH=64
-TW=64
-TC=32
+TH=4
+TW=4
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=OS
+
+label=Case 04 (WS, TH=TW=16, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=16
+TW=16
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=WS
+
+label=Case 05 (IS, TH=TW=16, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=16
+TW=16
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=IS
+
+label=Case 06 (OS, TH=TW=16, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=16
+TW=16
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=OS
+
+label=Case 07 (WS, TH=TW=32, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=32
+TW=32
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=WS
+
+label=Case 08 (IS, TH=TW=32, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=32
+TW=32
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=IS
+
+label=Case 09 (OS, TH=TW=32, TC=64, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=32
+TW=32
+TC=64
+TK=16
+stride=1
+padding=1
+strategy=OS
+
+label=Case 10 (WS, TH=TW=8, TC=128, TK=64)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=128
+TK=64
+stride=1
+padding=1
+strategy=WS
+
+label=Case 11 (IS, TH=TW=8, TC=128, TK=64)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=128
+TK=64
+stride=1
+padding=1
+strategy=IS
+
+label=Case 12 (OS, TH=TW=8, TC=128, TK=64)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=128
+TK=64
+stride=1
+padding=1
+strategy=OS
+
+label=Case 13 (WS, TH=TW=8, TC=256, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=256
+TK=16
+stride=1
+padding=1
+strategy=WS
+
+label=Case 14 (IS, TH=TW=8, TC=256, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=256
+TK=16
+stride=1
+padding=1
+strategy=IS
+
+label=Case 15 (OS, TH=TW=8, TC=256, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=256
+TK=16
+stride=1
+padding=1
+strategy=OS
+
+label=Case 16 (WS, TH=TW=8, TC=512, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=512
+TK=16
+stride=1
+padding=1
+strategy=WS
+
+label=Case 17 (IS, TH=TW=8, TC=512, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=512
+TK=16
+stride=1
+padding=1
+strategy=IS
+
+label=Case 18 (OS, TH=TW=8, TC=512, TK=16)
+P=128
+Q=128
+C=1024
+K=64
+R=3
+S=3
+TH=8
+TW=8
+TC=512
 TK=16
 stride=1
 padding=1
