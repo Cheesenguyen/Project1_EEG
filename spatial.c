@@ -1,7 +1,7 @@
 #include "spatial.h"
 #include "utils.h"
 
-/*
+/* mô phỏng quá trình dàn phẳn 16 PE theo chiều output channel
  * đọc 1 input và 16 giá trị weight độc lập
  * pe_compute_tk — unroll TK, PE_MAX cố định
  * Dùng td->act_th, act_tw, act_tk, act_tc (kích thước thực tế của tile hiện tại)
@@ -45,7 +45,7 @@ void pe_compute_tk(const float *sram_in, const float *sram_w,
                             }
                             m->sram_input_reads  += 1;
                             m->sram_weight_reads += act_tk;
-                            m->total_cycles      += n_pe_batches;
+                            m->total_cycles      += n_pe_batches;  // số lần thực hiện compute
                         }
                     }
                 }

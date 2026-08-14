@@ -119,7 +119,7 @@ int conv_forward(const Config *cfg,
     long tile_input_elems  = (long)td.rf_h * td.rf_w * td.TC_eff;
     long tile_weight_elems = (long)td.TK_eff * cfg->R * cfg->S * td.TC_eff;
     long n_spatial = (long)td.n_th * td.n_tw;
-    long n_all     = n_spatial * td.n_tc * td.n_tk;
+    long n_all     = n_spatial * td.n_tc * td.n_tk;     // tổng số lần xử lý 1 khối tile
 
     switch (cfg->strategy) {
     case OS:
